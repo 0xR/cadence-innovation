@@ -19,8 +19,8 @@ version = '0.0.1'
 
 description = """Samples for Cadence. Based on samples for AWS SWF"""
 
-sourceCompatibility = 1.8
-targetCompatibility = 1.8
+sourceCompatibility = 11
+targetCompatibility = 11
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
 }
@@ -44,7 +44,7 @@ dependencies {
 }
 
 compileJava {
-    dependsOn 'googleJavaFormat'
+//    dependsOn 'googleJavaFormat'
     options.encoding = 'UTF-8'
     options.compilerArgs << "-Xlint:unchecked" << "-Xlint:deprecation"
     options.errorprone.errorproneArgs << "-XepExcludedPaths:.*/generated-sources/.*"
