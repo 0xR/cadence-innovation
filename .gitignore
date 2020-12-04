@@ -7,3 +7,5 @@ target
 .gradle
 /build
 /out
+cadence/
+cadence-java-samples/
