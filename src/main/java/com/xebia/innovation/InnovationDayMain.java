@@ -4,6 +4,8 @@ import com.uber.cadence.activity.ActivityMethod;
 import com.uber.cadence.common.RetryOptions;
 import com.uber.cadence.worker.Worker;
 import com.uber.cadence.worker.WorkerOptions;
+import com.uber.cadence.workflow.Async;
+import com.uber.cadence.workflow.Promise;
 import com.uber.cadence.workflow.Workflow;
 import com.uber.cadence.workflow.WorkflowMethod;
 
@@ -13,6 +15,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 import static com.uber.cadence.samples.common.SampleConstants.DOMAIN;
 
@@ -24,8 +28,8 @@ public class InnovationDayMain {
     }
 
     public interface RestActivities {
-        @ActivityMethod(scheduleToCloseTimeoutSeconds = 2)
-        void callRestService();
+        @ActivityMethod()
+        String callRestService();
     }
 
     public static class InnovationDayWorkflowImpl implements InnovationDayWorkflow {
@@ -33,13 +37,20 @@ public class InnovationDayMain {
                 Workflow.newActivityStub(RestActivities.class);
         @Override
         public void callUnreliableService() {
-            Workflow.retry(new RetryOptions.Builder().setInitialInterval(Duration.ofSeconds(1)).setMaximumAttempts(10).build(), () -> activities.callRestService());
+            List<Promise<String>> promiseList = new ArrayList<>();
+            for(int i = 0; i < 100; i++) {
+                promiseList.add(Workflow.retry(
+                        new RetryOptions.Builder().setInitialInterval(Duration.ofSeconds(1)).setMaximumAttempts(10).build(),
+                        () -> Async.function(activities::callRestService)
+                ));
+            }
+            Promise.allOf(promiseList).get();
         }
     }
 
     static class RestActivitiesImpl implements RestActivities {
         @Override
-        public void callRestService() {
+        public String callRestService() {
             try {
                 HttpClient client = HttpClient.newHttpClient();
                 HttpRequest request = HttpRequest.newBuilder()
@@ -56,6 +67,8 @@ public class InnovationDayMain {
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
+
+            return "success";
         }
     }
 
