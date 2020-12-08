@@ -1,32 +1,29 @@
 package com.xebia.innovation;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.stream.IntStream;
+
 import com.uber.cadence.activity.ActivityMethod;
 import com.uber.cadence.activity.ActivityOptions;
 import com.uber.cadence.client.WorkflowClient;
 import com.uber.cadence.common.RetryOptions;
 import com.uber.cadence.worker.Worker;
 import com.uber.cadence.worker.WorkerOptions;
-import com.uber.cadence.workflow.Async;
-import com.uber.cadence.workflow.Promise;
 import com.uber.cadence.workflow.Workflow;
 import com.uber.cadence.workflow.WorkflowMethod;
-
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 
 import static com.uber.cadence.samples.common.SampleConstants.DOMAIN;
 
 public class InnovationDayMain {
     static final String TASK_LIST = "innovationDayTaskList";
+    static final String HTTP_BIN_TASK_LIST = "httpBin";
 
     public interface RestActivities {
-        @ActivityMethod(scheduleToCloseTimeoutSeconds = 300)
+        @ActivityMethod(scheduleToCloseTimeoutSeconds = 300, taskList = HTTP_BIN_TASK_LIST)
         String callRestService();
     }
 
@@ -56,7 +53,7 @@ public class InnovationDayMain {
 
     public interface InnovationDayWorkflow {
         @WorkflowMethod(executionStartToCloseTimeoutSeconds = 300, taskList = TASK_LIST)
-        void callUnreliableService() throws IOException, InterruptedException;
+        void runWorkflow();
     }
 
 
@@ -76,42 +73,51 @@ public class InnovationDayMain {
 
 
         @Override
-        public void callUnreliableService() {
-            List<Promise<String>> promiseList = new ArrayList<>();
+        public void runWorkflow() {
             for (int i = 0; i < 10; i++) {
-                promiseList.add(
-                    Async.function(activities::callRestService)
-                );
+                activities.callRestService();
             }
-            Promise.allOf(promiseList).get();
         }
     }
 
 
-    public static void main(String[] args) throws IOException, InterruptedException {
+    public static void main(String[] args) {
         Worker.Factory workerFactory = new Worker.Factory(DOMAIN);
-        Worker worker = workerFactory.newWorker(TASK_LIST, new WorkerOptions.Builder()
-            .setTaskListActivitiesPerSecond(1)
-            .build());
-        worker.registerWorkflowImplementationTypes(
+        Worker workflowWorker = workerFactory.newWorker(
+            TASK_LIST,
+            // should not be needed
+            new WorkerOptions.Builder()
+                .setTaskListActivitiesPerSecond(0.1)
+                .setWorkerActivitiesPerSecond(0.1)
+                .build()
+        );
+        workflowWorker.registerWorkflowImplementationTypes(
             InnovationDayWorkflowImpl.class
         );
-        worker.registerActivitiesImplementations(new RestActivitiesImpl());
+
+        Worker httpbinWorker = workerFactory.newWorker(
+            HTTP_BIN_TASK_LIST,
+            // doesn't seem to be enforced
+            new WorkerOptions.Builder()
+                .setTaskListActivitiesPerSecond(0.1)
+                .setWorkerActivitiesPerSecond(0.1)
+                .build()
+        );
+        httpbinWorker.registerActivitiesImplementations(new RestActivitiesImpl());
+
         workerFactory.start();
 
-        RetryOptions retryOptions = new RetryOptions.Builder()
-            .setInitialInterval(Duration.ofSeconds(1))
-            .setMaximumAttempts(10)
-            .build();
         // Start a workflow execution. Usually this is done from another program.
         WorkflowClient workflowClient = WorkflowClient.newInstance(DOMAIN);
         // Get a workflow stub using the same task list the worker uses.
         InnovationDayWorkflow innovationDayWorkflow = workflowClient.newWorkflowStub(
             InnovationDayWorkflow.class
-//            new WorkflowOptions.Builder().setRetryOptions(retryOptions).build()
         );
         // Execute a workflow waiting for it to complete.
-        innovationDayWorkflow.callUnreliableService();
+        IntStream.range(0, 10).parallel().forEach((i) -> {
+            innovationDayWorkflow.runWorkflow();
+        });
+
         System.exit(0);
     }
 }
